@@ -10,13 +10,14 @@ def home():
     return jsonify({'status': 'Clipio YT API is running!'})
 
 def get_cookies_file():
-    """Write cookies from env variable to a temp file"""
     cookies_content = os.environ.get('YT_COOKIES', '')
     if not cookies_content:
         return None
-    
-    tmp = tempfile.NamedTemporaryFile(mode='w', suffix='.txt', delete=False)
+    # Replace literal \n in case Railway escaped newlines
+    cookies_content = cookies_content.replace('\\n', '\n')
+    tmp = tempfile.NamedTemporaryFile(mode='w', suffix='.txt', delete=False, encoding='utf-8')
     tmp.write(cookies_content)
+    tmp.flush()
     tmp.close()
     return tmp.name
 
@@ -24,7 +25,7 @@ def get_cookies_file():
 def download():
     data = request.json
     url = data.get('url')
-    
+
     if not url:
         return jsonify({'error': 'URL required'}), 400
 
@@ -34,22 +35,26 @@ def download():
         'format': 'bestvideo[ext=mp4]+bestaudio[ext=m4a]/best[ext=mp4]/best',
         'quiet': True,
         'no_warnings': True,
+        'extractor_args': {'youtube': {'skip': ['dash', 'hls']}},
     }
 
     if cookies_file:
         ydl_opts['cookiefile'] = cookies_file
+        print(f"Using cookies file: {cookies_file}", flush=True)
+    else:
+        print("No cookies found in environment!", flush=True)
 
     try:
         with yt_dlp.YoutubeDL(ydl_opts) as ydl:
             info = ydl.extract_info(url, download=False)
             formats = info.get('formats', [])
-            
+
             best = None
             for f in reversed(formats):
                 if f.get('vcodec') != 'none' and f.get('acodec') != 'none' and f.get('url'):
                     best = f
                     break
-            
+
             if not best:
                 best = next((f for f in formats if f.get('url')), None)
 
@@ -63,10 +68,10 @@ def download():
             })
 
     except Exception as e:
+        print(f"yt-dlp error: {e}", flush=True)
         return jsonify({'error': str(e)}), 500
-    
+
     finally:
-        # Clean up temp cookies file
         if cookies_file and os.path.exists(cookies_file):
             os.unlink(cookies_file)
 
