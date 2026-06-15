@@ -1,35 +1,24 @@
 from flask import Flask, request, jsonify
+import yt_dlp
 import os
-import re
-import urllib.request
-import json
+import tempfile
 
 app = Flask(__name__)
-
-# List of public Invidious instances - we try each one
-INVIDIOUS_INSTANCES = [
-    'https://inv.nadeko.net',
-    'https://invidious.privacydev.net',
-    'https://vid.puffyan.us',
-    'https://invidious.nerdvpn.de',
-    'https://invidious.io.lol',
-]
-
-def extract_video_id(url):
-    patterns = [
-        r'(?:v=|\/)([0-9A-Za-z_-]{11}).*',
-        r'(?:embed\/)([0-9A-Za-z_-]{11})',
-        r'(?:youtu\.be\/)([0-9A-Za-z_-]{11})',
-    ]
-    for pattern in patterns:
-        match = re.search(pattern, url)
-        if match:
-            return match.group(1)
-    return None
 
 @app.route('/')
 def home():
     return jsonify({'status': 'Clipio YT API is running!'})
+
+def get_cookies_file():
+    cookies_content = os.environ.get('YT_COOKIES', '')
+    if not cookies_content:
+        return None
+    cookies_content = cookies_content.replace('\\n', '\n')
+    tmp = tempfile.NamedTemporaryFile(mode='w', suffix='.txt', delete=False, encoding='utf-8')
+    tmp.write(cookies_content)
+    tmp.flush()
+    tmp.close()
+    return tmp.name
 
 @app.route('/youtube', methods=['POST'])
 def download():
@@ -39,69 +28,52 @@ def download():
     if not url:
         return jsonify({'error': 'URL required'}), 400
 
-    video_id = extract_video_id(url)
-    if not video_id:
-        return jsonify({'error': 'Could not extract video ID'}), 400
+    cookies_file = get_cookies_file()
 
-    print(f"Trying video ID: {video_id}", flush=True)
+    ydl_opts = {
+        'format': 'best[ext=mp4]/best',
+        'quiet': True,
+        'no_warnings': True,
+        'extractor_args': {
+            'youtube': {
+                'player_client': ['ios'],
+            }
+        },
+    }
 
-    # Try each Invidious instance until one works
-    for instance in INVIDIOUS_INSTANCES:
-        try:
-            api_url = f"{instance}/api/v1/videos/{video_id}"
-            print(f"Trying instance: {instance}", flush=True)
+    if cookies_file:
+        ydl_opts['cookiefile'] = cookies_file
 
-            req = urllib.request.Request(
-                api_url,
-                headers={'User-Agent': 'Mozilla/5.0'}
-            )
-            with urllib.request.urlopen(req, timeout=10) as response:
-                video_data = json.loads(response.read().decode())
+    try:
+        with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+            info = ydl.extract_info(url, download=False)
+            formats = info.get('formats', [])
 
-            title = video_data.get('title', 'video')
-            formats = video_data.get('adaptiveFormats', []) + video_data.get('formatStreams', [])
+            best = None
+            for f in reversed(formats):
+                if f.get('vcodec') != 'none' and f.get('url'):
+                    best = f
+                    break
 
-            if not formats:
-                print(f"No formats from {instance}", flush=True)
-                continue
+            if not best:
+                best = next((f for f in formats if f.get('url')), None)
 
-            # Pick best mp4 with video
-            mp4_formats = [
-                f for f in formats
-                if 'video/mp4' in f.get('type', '') and f.get('url')
-            ]
-
-            # Sort by quality
-            mp4_formats.sort(
-                key=lambda f: int(f.get('qualityLabel', '0p').replace('p', '') or 0),
-                reverse=True
-            )
-
-            # Fallback to formatStreams (combined video+audio)
-            if not mp4_formats:
-                mp4_formats = [
-                    f for f in video_data.get('formatStreams', [])
-                    if f.get('url')
-                ]
-
-            if not mp4_formats:
-                print(f"No mp4 formats from {instance}", flush=True)
-                continue
-
-            best = mp4_formats[0]
-            print(f"Success from {instance}!", flush=True)
+            if not best:
+                return jsonify({'error': 'No downloadable format found'}), 422
 
             return jsonify({
                 'downloadUrl': best['url'],
-                'title': title,
+                'title': info.get('title', 'video'),
                 'platform': 'YouTube'
             })
 
-        except Exception as e:
-            print(f"Instance {instance} failed: {e}", flush=True)
-            continue
+    except Exception as e:
+        print(f"yt-dlp error: {e}", flush=True)
+        return jsonify({'error': str(e)}), 500
 
-    return jsonify({'error': 'Could not fetch video. Try again later.'}), 500
+    finally:
+        if cookies_file and os.path.exists(cookies_file):
+            os.unlink(cookies_file)
 
 if __name__ == '__main__':
     port = int(os.environ.get('PORT', 5000))
