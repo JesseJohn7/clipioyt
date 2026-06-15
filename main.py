@@ -9,11 +9,19 @@ app = Flask(__name__)
 def home():
     return jsonify({'status': 'Clipio YT API is running!'})
 
+@app.route('/debug')
+def debug():
+    cookies_content = os.environ.get('YT_COOKIES', '')
+    return jsonify({
+        'has_cookies': bool(cookies_content),
+        'cookies_length': len(cookies_content),
+        'first_50_chars': cookies_content[:50] if cookies_content else 'EMPTY'
+    })
+
 def get_cookies_file():
     cookies_content = os.environ.get('YT_COOKIES', '')
     if not cookies_content:
         return None
-    # Replace literal \n in case Railway escaped newlines
     cookies_content = cookies_content.replace('\\n', '\n')
     tmp = tempfile.NamedTemporaryFile(mode='w', suffix='.txt', delete=False, encoding='utf-8')
     tmp.write(cookies_content)
@@ -30,19 +38,22 @@ def download():
         return jsonify({'error': 'URL required'}), 400
 
     cookies_file = get_cookies_file()
+    print(f"Cookies file: {cookies_file}", flush=True)
+
+    if cookies_file:
+        with open(cookies_file, 'r') as f:
+            content = f.read()
+            print(f"Cookies file content length: {len(content)}", flush=True)
+            print(f"First 100 chars: {content[:100]}", flush=True)
 
     ydl_opts = {
         'format': 'bestvideo[ext=mp4]+bestaudio[ext=m4a]/best[ext=mp4]/best',
-        'quiet': True,
-        'no_warnings': True,
-        'extractor_args': {'youtube': {'skip': ['dash', 'hls']}},
+        'quiet': False,
+        'no_warnings': False,
     }
 
     if cookies_file:
         ydl_opts['cookiefile'] = cookies_file
-        print(f"Using cookies file: {cookies_file}", flush=True)
-    else:
-        print("No cookies found in environment!", flush=True)
 
     try:
         with yt_dlp.YoutubeDL(ydl_opts) as ydl:
