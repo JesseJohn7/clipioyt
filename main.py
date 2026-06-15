@@ -9,6 +9,15 @@ app = Flask(__name__)
 def home():
     return jsonify({'status': 'Clipio YT API is running!'})
 
+@app.route('/debug')
+def debug():
+    cookies_content = os.environ.get('YT_COOKIES', '')
+    return jsonify({
+        'has_cookies': bool(cookies_content),
+        'cookies_length': len(cookies_content),
+        'first_50_chars': cookies_content[:50] if cookies_content else 'EMPTY'
+    })
+
 def get_cookies_file():
     cookies_content = os.environ.get('YT_COOKIES', '')
     if not cookies_content:
@@ -31,13 +40,18 @@ def download():
     cookies_file = get_cookies_file()
 
     ydl_opts = {
-        'format': 'best[ext=mp4]/best',
+        'format': 'bestvideo[ext=mp4]+bestaudio[ext=m4a]/best[ext=mp4]/best',
         'quiet': True,
         'no_warnings': True,
         'extractor_args': {
             'youtube': {
-                'player_client': ['ios'],
+                'player_client': ['web', 'android'],
+                'player_skip': ['webpage', 'configs'],
             }
+        },
+        'http_headers': {
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+            'Accept-Language': 'en-US,en;q=0.9',
         },
     }
 
@@ -51,7 +65,7 @@ def download():
 
             best = None
             for f in reversed(formats):
-                if f.get('vcodec') != 'none' and f.get('url'):
+                if f.get('vcodec') != 'none' and f.get('acodec') != 'none' and f.get('url'):
                     best = f
                     break
 
