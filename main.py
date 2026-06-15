@@ -38,18 +38,21 @@ def download():
         return jsonify({'error': 'URL required'}), 400
 
     cookies_file = get_cookies_file()
-    print(f"Cookies file: {cookies_file}", flush=True)
-
-    if cookies_file:
-        with open(cookies_file, 'r') as f:
-            content = f.read()
-            print(f"Cookies file content length: {len(content)}", flush=True)
-            print(f"First 100 chars: {content[:100]}", flush=True)
 
     ydl_opts = {
         'format': 'bestvideo[ext=mp4]+bestaudio[ext=m4a]/best[ext=mp4]/best',
-        'quiet': False,
-        'no_warnings': False,
+        'quiet': True,
+        'no_warnings': True,
+        'extractor_args': {
+            'youtube': {
+                'player_client': ['web', 'android'],
+                'player_skip': ['webpage', 'configs'],
+            }
+        },
+        'http_headers': {
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+            'Accept-Language': 'en-US,en;q=0.9',
+        },
     }
 
     if cookies_file:
