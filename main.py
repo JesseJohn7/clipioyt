@@ -4,6 +4,11 @@ import os
 
 app = Flask(__name__)
 
+# Root route so Railway knows app is alive
+@app.route('/')
+def home():
+    return jsonify({'status': 'Clipio YT API is running!'})
+
 @app.route('/youtube', methods=['POST'])
 def download():
     data = request.json
@@ -16,26 +21,19 @@ def download():
         'format': 'bestvideo[ext=mp4]+bestaudio[ext=m4a]/best[ext=mp4]/best',
         'quiet': True,
         'no_warnings': True,
-        'extract_flat': False,
     }
 
     try:
         with yt_dlp.YoutubeDL(ydl_opts) as ydl:
             info = ydl.extract_info(url, download=False)
-            
-            # Get the best direct URL
             formats = info.get('formats', [])
             
-            # Find best mp4 with both video and audio
             best = None
             for f in reversed(formats):
-                if (f.get('vcodec') != 'none' and 
-                    f.get('acodec') != 'none' and 
-                    f.get('url')):
+                if f.get('vcodec') != 'none' and f.get('acodec') != 'none' and f.get('url'):
                     best = f
                     break
             
-            # Fallback: any format with a URL
             if not best:
                 best = next((f for f in formats if f.get('url')), None)
 
