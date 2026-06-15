@@ -1,13 +1,24 @@
 from flask import Flask, request, jsonify
 import yt_dlp
 import os
+import tempfile
 
 app = Flask(__name__)
 
-# Root route so Railway knows app is alive
 @app.route('/')
 def home():
     return jsonify({'status': 'Clipio YT API is running!'})
+
+def get_cookies_file():
+    """Write cookies from env variable to a temp file"""
+    cookies_content = os.environ.get('YT_COOKIES', '')
+    if not cookies_content:
+        return None
+    
+    tmp = tempfile.NamedTemporaryFile(mode='w', suffix='.txt', delete=False)
+    tmp.write(cookies_content)
+    tmp.close()
+    return tmp.name
 
 @app.route('/youtube', methods=['POST'])
 def download():
@@ -17,11 +28,16 @@ def download():
     if not url:
         return jsonify({'error': 'URL required'}), 400
 
+    cookies_file = get_cookies_file()
+
     ydl_opts = {
         'format': 'bestvideo[ext=mp4]+bestaudio[ext=m4a]/best[ext=mp4]/best',
         'quiet': True,
         'no_warnings': True,
     }
+
+    if cookies_file:
+        ydl_opts['cookiefile'] = cookies_file
 
     try:
         with yt_dlp.YoutubeDL(ydl_opts) as ydl:
@@ -48,6 +64,11 @@ def download():
 
     except Exception as e:
         return jsonify({'error': str(e)}), 500
+    
+    finally:
+        # Clean up temp cookies file
+        if cookies_file and os.path.exists(cookies_file):
+            os.unlink(cookies_file)
 
 if __name__ == '__main__':
     port = int(os.environ.get('PORT', 5000))
